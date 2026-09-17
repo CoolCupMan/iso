@@ -1,0 +1,109 @@
+name: build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: "Feste Build-GUID (leer = neue Kennung je Lauf)"
+        required: false
+        type: string
+
+jobs:
+  test:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore tests/IsoForge.Tests/IsoForge.Tests.csproj
+
+      - name: Test
+        run: dotnet test tests/IsoForge.Tests/IsoForge.Tests.csproj --configuration Release --nologo --logger "console;verbosity=normal"
+
+  build:
+    name: IsoForge.exe
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build
+        id: build
+        shell: pwsh
+        run: |
+          $arguments = @{ SkipTests = $true }
+          if ('${{ inputs.build_id }}') { $arguments.BuildId = '${{ inputs.build_id }}' }
+          ./build.ps1 @arguments
+
+          $exe = Get-ChildItem artifacts/IsoForge-*.exe | Select-Object -First 1
+          "exe=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+          "name=$($exe.Name)" >> $env:GITHUB_OUTPUT
+
+      - name: Selbsttest des ISO-Schreibers
+        shell: pwsh
+        run: |
+          & '${{ steps.build.outputs.exe }}' selftest --out "$env:RUNNER_TEMP\isoforge-selftest"
+          if ($LASTEXITCODE -ne 0) { throw 'Der Selbsttest ist fehlgeschlagen.' }
+
+      - name: Erzeugtes Abbild gegenpruefen
+        shell: pwsh
+        run: |
+          # Windows selbst muss das Abbild einhaengen koennen - das prueft die Struktur unabhaengig
+          # vom eigenen Leser.
+          $iso = "$env:RUNNER_TEMP\isoforge-selftest\selftest.iso"
+          $image = Mount-DiskImage -ImagePath $iso -PassThru
+          try {
+              $letter = ($image | Get-Volume).DriveLetter
+              if (-not $letter) { throw 'Das Abbild liess sich nicht einhaengen.' }
+              Write-Host "Eingehaengt als ${letter}:"
+
+              $expected = @(
+                  'bootmgr',
+                  'boot\boot.sdi',
+                  'efi\boot\bootx64.efi',
+                  'sources\boot.wim',
+                  'sources\install.swm',
+                  'IsoForge\media.cmd'
+              )
+
+              foreach ($relative in $expected) {
+                  $path = "${letter}:\$relative"
+                  if (-not (Test-Path $path)) { throw "Im Abbild fehlt $relative" }
+                  Write-Host "  ok  $relative ($((Get-Item $path).Length) Bytes)"
+              }
+
+              $drivers = Get-ChildItem "${letter}:\drivers" -File
+              if ($drivers.Count -ne 120) { throw "drivers enthaelt $($drivers.Count) statt 120 Dateien." }
+              Write-Host "  ok  drivers ($($drivers.Count) Dateien)"
+
+              $label = (Get-Volume -DriveLetter $letter).FileSystemLabel
+              Write-Host "  Datentraegerbezeichnung: $label"
+          }
+          finally {
+              Dismount-DiskImage -ImagePath $iso | Out-Null
+          }
+
+      - name: Programmdatei veroeffentlichen
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.name }}
+          path: |
+            artifacts/IsoForge-*.exe
+            artifacts/IsoForge-*.exe.sha256
+          if-no-files-found: error
