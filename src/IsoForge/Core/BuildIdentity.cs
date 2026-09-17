@@ -31,8 +31,26 @@ public static class BuildIdentity
     /// <summary>Name, unter dem dieser Stand installiert und im Bootmenue gefuehrt wird.</summary>
     public static string ProductInstance => $"IsoForge {Version} ({ShortId})";
 
-    public static string VolumeLabel(string tier, DateTimeOffset when) =>
-        Sanitize($"ISOFORGE_{tier.ToUpperInvariant()}_{when:yyyyMMdd}_{ShortId}", 32);
+    /// <summary>
+    /// Die Datentraegerbezeichnung des Mediums. Sie darf hoechstens 16 Zeichen lang sein: Joliet legt
+    /// dafuer 32 Byte in UCS-2 an, und Windows zeigt bevorzugt die Joliet-Bezeichnung an. Laenger
+    /// gewaehlt, fiele ausgerechnet die Build-Kennung am Ende weg.
+    /// </summary>
+    public static string VolumeLabel(string tier) => Sanitize($"IF_{ShortTier(tier)}_{ShortId}", 16);
+
+    private static string ShortTier(string tier)
+    {
+        switch (tier.ToLowerInvariant())
+        {
+            case "full": return "FULL";
+            case "system": return "SYS";
+            case "personal": return "PERS";
+            case "custom": return "CUST";
+            default:
+                string upper = tier.ToUpperInvariant();
+                return upper.Length > 4 ? upper[..4] : upper;
+        }
+    }
 
     private static (Guid, string) Resolve()
     {

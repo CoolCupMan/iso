@@ -172,7 +172,7 @@ Jeder Build bekommt eine eigene GUID. Daraus entsteht eine achtstellige, vorlesb
 | Dateiname der Programmdatei | `IsoForge-1.0.0-7K3QD9WZ.exe` |
 | Installationsverzeichnis | `C:\Program Files\IsoForge\7K3QD9WZ\` |
 | Eintrag in der Softwareliste | `IsoForge 1.0.0 (7K3QD9WZ)` |
-| Datenträgerbezeichnung des ISO | `ISOFORGE_FULL_20260917_7K3QD9WZ` |
+| Datenträgerbezeichnung des ISO | `IF_FULL_7K3QD9WZ` |
 | Starteintrag nach der Wiederherstellung | `Windows - IsoForge 7K3QD9WZ (2026-09-17 10:42)` |
 | Vermerk im wiederhergestellten System | `C:\IsoForge\restored.txt` |
 

@@ -192,7 +192,7 @@ public sealed class CaptureWorkflow
             IsoBuildResult iso = IsoBuilder.Build(
                 staging,
                 outputPath,
-                BuildIdentity.VolumeLabel(_options.Tier.ShortName(), started),
+                BuildIdentity.VolumeLabel(_options.Tier.ShortName()),
                 bootFiles,
                 _options.OscdimgPath,
                 _options.Engine,

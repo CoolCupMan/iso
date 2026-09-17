@@ -36,6 +36,16 @@ public static class SelfTest
         failures += Check("FAT-Abbild traegt eine gueltige Startsignatur",
             efiBootImage[510] == 0x55 && efiBootImage[511] == 0xAA, "-");
 
+        // Joliet legt fuer die Datentraegerbezeichnung 32 Byte in UCS-2 an - mehr als 16 Zeichen zeigt
+        // Windows also nicht an, und die Build-Kennung am Ende wuerde abgeschnitten.
+        foreach (string tier in new[] { "full", "system", "personal", "custom" })
+        {
+            string label = BuildIdentity.VolumeLabel(tier);
+            failures += Check($"Datentraegerbezeichnung '{label}' passt in 16 Zeichen",
+                label.Length <= 16 && label.Contains(BuildIdentity.ShortId, StringComparison.Ordinal),
+                $"{label.Length} Zeichen");
+        }
+
         // --- Eingebauter Schreiber ------------------------------------------
         string builtInPath = Path.Combine(workDirectory, "selftest-builtin.iso");
         Console.WriteLine();
