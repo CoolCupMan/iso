@@ -66,7 +66,9 @@ jobs:
               if ($tag) {
                   $seed = [Text.Encoding]::UTF8.GetBytes("IsoForge|$tag")
                   $hash = [Security.Cryptography.SHA256]::HashData($seed)
-                  $arguments.BuildId = [guid]::new($hash[0..15])
+                  # Ohne die ausdrueckliche Umwandlung liefert der Bereichsoperator ein Object[],
+                  # und [guid] greift dann zum Konstruktor fuer Zeichenketten.
+                  $arguments.BuildId = [guid]::new([byte[]]$hash[0..15])
               }
           }
           ./build.ps1 @arguments
