@@ -16,6 +16,8 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Der Quellgenerator hinter [LibraryImport] erzeugt unsicheren Code. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
 
     <ApplicationManifest>app.manifest</ApplicationManifest>

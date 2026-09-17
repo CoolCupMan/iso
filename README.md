@@ -104,6 +104,27 @@ USB-Datenträger schreiben, davon starten. Es erscheint ein Menü:
                                           sonst der eingebaute Schreiber
 ```
 
+### Wie das ISO geschrieben wird
+
+Es gibt drei Wege, und IsoForge nimmt den besten verfügbaren (`--iso-engine` erzwingt einen bestimmten):
+
+| Reihenfolge | Weg | Dateisysteme | Voraussetzung |
+|---|---|---|---|
+| 1 | `oscdimg.exe` | ISO 9660 + UDF | Windows-ADK installiert |
+| 2 | **Image Mastering API (IMAPI2FS)** | ISO 9660 + Joliet + UDF 1.02 | in jedem Windows enthalten |
+| 3 | eingebauter Schreiber | ISO 9660 + Joliet | keine |
+
+Der zweite Weg ist der Regelfall, und **UDF ist dabei kein Beiwerk**: Die UEFI-Spezifikation schreibt
+nur FAT-Unterstützung vor. Etliche Firmware-Fassungen – darunter EDK2/OVMF (QEMU) und Hyper-V der
+zweiten Generation – stellen für ein reines ISO-9660-Medium gar kein Dateisystem bereit. `bootmgfw.efi`
+würde dann zwar aus dem El-Torito-Startabbild heraus anlaufen, seine Startkonfiguration unter
+`\EFI\Microsoft\Boot\BCD` aber nicht mehr finden und mit `0xc000000f` stehen bleiben. Microsofts
+eigene Installationsmedien tragen deshalb UDF – IsoForge macht es genauso.
+
+Der eingebaute Schreiber springt nur ein, wenn die beiden anderen Wege ausfallen. Er erzeugt ein
+gültiges, im BIOS-Modus startfähiges Medium; im UEFI-Modus hängt der Start dann davon ab, ob die
+Firmware ISO 9660 lesen kann. IsoForge weist beim Erstellen darauf hin.
+
 ### Warum kein Windows-ADK nötig ist
 
 Die üblichen Anleitungen setzen das *Windows Assessment and Deployment Kit* voraus – für `oscdimg.exe`
@@ -113,14 +134,15 @@ Die üblichen Anleitungen setzen das *Windows Assessment and Deployment Kit* vor
   bereits ein vollständiges WinPE mit `diskpart`, `DISM` und `bcdboot`. IsoForge kopiert sie – mit
   Sicherungssemantik, denn die Datei gehört normalerweise nur `SYSTEM` – und ersetzt die
   Wiederherstellungsoberfläche über `winpeshl.ini` durch das eigene Skript.
-* **ISO schreiben:** Enthalten ist ein eigener Schreiber für ISO 9660 (Level 2) mit Joliet-Namen und
-  einem El-Torito-Startkatalog mit zwei Einträgen – einer für BIOS, einer für UEFI.
+* **ISO schreiben:** Die Image Mastering API steckt in jedem Windows; zusätzlich ist ein eigener
+  Schreiber für ISO 9660 (Level 2) mit Joliet-Namen und einem El-Torito-Startkatalog mit zwei
+  Einträgen – einer für BIOS, einer für UEFI – enthalten.
 * **UEFI-Startabbild:** Der UEFI-Eintrag eines El-Torito-Mediums verweist auf ein FAT-Dateisystem, das
   die Firmware einhängt. Windows liefert dafür `efisys.bin` mit; fehlt sie, erzeugt IsoForge ein
   FAT16-Abbild mit `bootmgfw.efi` als `\EFI\BOOT\BOOTX64.EFI`.
 
-Ist das ADK doch installiert, wird `oscdimg.exe` bevorzugt – das Ergebnis entspricht dann dem, was
-Microsoft selbst erzeugt.
+Ist das ADK doch installiert, wird `oscdimg.exe` bevorzugt – das Ergebnis entspricht dann bis ins
+Detail dem, was Microsoft selbst erzeugt.
 
 ### Damit das Abbild auf fremder Hardware startet
 
@@ -188,7 +210,7 @@ src/IsoForge.Media/     ISO-9660-Schreiber und -Leser, FAT16-Erzeuger (plattform
 src/IsoForge/
   Core/                 Protokoll, Prozessaufrufe, Privilegien, Build-Kennung, Vorprüfungen
   Capture/              Schattenkopie, Abstufungen, DISM, Ablaufsteuerung
-  Media/                Startdateien, BCD, WinPE-Aufbereitung, Medienaufbau
+  Media/                Startdateien, BCD, WinPE-Aufbereitung, die drei ISO-Schreibwege
   Payload/              Skripte, die im Startsystem laufen (Batch – WinPE hat kein PowerShell)
 tests/IsoForge.Tests/   Tests für Schreiber und FAT-Erzeuger
 ```
@@ -197,11 +219,11 @@ tests/IsoForge.Tests/   Tests für Schreiber und FAT-Erzeuger
 
 ```powershell
 dotnet test                       # Schreiber gegen unabhängige Leser geprüft
-IsoForge.exe selftest             # baut ein kleines Medium und liest es zurück
+IsoForge.exe selftest             # baut je ein Medium pro Schreibweg und liest sie zurück
 ```
 
-Die Bauumgebung hängt das erzeugte Prüf-ISO zusätzlich mit `Mount-DiskImage` ein – Windows selbst
-bestätigt damit, dass die Struktur stimmt.
+Die Bauumgebung hängt die erzeugten Prüf-ISOs zusätzlich mit `Mount-DiskImage` ein und vergleicht den
+Inhalt – Windows selbst bestätigt damit, dass die Struktur stimmt.
 
 ---
 

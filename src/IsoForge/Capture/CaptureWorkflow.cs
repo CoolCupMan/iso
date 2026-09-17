@@ -26,6 +26,9 @@ public sealed class CaptureOptions
 
     public string? OscdimgPath { get; set; }
 
+    /// <summary>Welcher Weg das ISO schreibt; die Vorgabe waehlt selbst den besten verfuegbaren.</summary>
+    public IsoEngine Engine { get; set; } = IsoEngine.Auto;
+
     public string? BootsectPath { get; set; }
 
     public string? WinPePath { get; set; }
@@ -191,7 +194,9 @@ public sealed class CaptureWorkflow
                 outputPath,
                 BuildIdentity.VolumeLabel(_options.Tier.ShortName(), started),
                 bootFiles,
-                _options.OscdimgPath);
+                _options.OscdimgPath,
+                _options.Engine,
+                work);
 
             stopwatch.Stop();
             return new CaptureSummary(

@@ -61,43 +61,54 @@ jobs:
           & '${{ steps.build.outputs.exe }}' selftest --out "$env:RUNNER_TEMP\isoforge-selftest"
           if ($LASTEXITCODE -ne 0) { throw 'Der Selbsttest ist fehlgeschlagen.' }
 
-      - name: Erzeugtes Abbild gegenpruefen
+      - name: Erzeugte Abbilder gegenpruefen
         shell: pwsh
         run: |
-          # Windows selbst muss das Abbild einhaengen koennen - das prueft die Struktur unabhaengig
+          # Windows selbst muss die Abbilder einhaengen koennen - das prueft die Struktur unabhaengig
           # vom eigenen Leser.
-          $iso = "$env:RUNNER_TEMP\isoforge-selftest\selftest.iso"
-          $image = Mount-DiskImage -ImagePath $iso -PassThru
-          try {
-              $letter = ($image | Get-Volume).DriveLetter
-              if (-not $letter) { throw 'Das Abbild liess sich nicht einhaengen.' }
-              Write-Host "Eingehaengt als ${letter}:"
+          $expected = @(
+              'bootmgr',
+              'boot\boot.sdi',
+              'efi\boot\bootx64.efi',
+              'efi\microsoft\boot\bcd',
+              'sources\boot.wim',
+              'sources\install.swm',
+              'IsoForge\media.cmd'
+          )
 
-              $expected = @(
-                  'bootmgr',
-                  'boot\boot.sdi',
-                  'efi\boot\bootx64.efi',
-                  'sources\boot.wim',
-                  'sources\install.swm',
-                  'IsoForge\media.cmd'
-              )
+          $isos = Get-ChildItem "$env:RUNNER_TEMP\isoforge-selftest\*.iso"
+          if ($isos.Count -lt 2) {
+              throw "Erwartet wurden zwei Abbilder (eingebauter Schreiber und IMAPI), gefunden: $($isos.Count)."
+          }
 
-              foreach ($relative in $expected) {
-                  $path = "${letter}:\$relative"
-                  if (-not (Test-Path $path)) { throw "Im Abbild fehlt $relative" }
-                  Write-Host "  ok  $relative ($((Get-Item $path).Length) Bytes)"
+          foreach ($iso in $isos) {
+              Write-Host ""
+              Write-Host "=== $($iso.Name) ($([math]::Round($iso.Length / 1MB, 1)) MB)"
+              $image = Mount-DiskImage -ImagePath $iso.FullName -PassThru
+              try {
+                  $volume = $image | Get-Volume
+                  $letter = $volume.DriveLetter
+                  if (-not $letter) { throw "$($iso.Name) liess sich nicht einhaengen." }
+                  Write-Host "  eingehaengt als ${letter}: - Dateisystem $($volume.FileSystem), Bezeichnung $($volume.FileSystemLabel)"
+
+                  foreach ($relative in $expected) {
+                      $path = "${letter}:\$relative"
+                      if (-not (Test-Path $path)) { throw "In $($iso.Name) fehlt $relative" }
+                      Write-Host "  ok  $relative ($((Get-Item $path).Length) Bytes)"
+                  }
+
+                  $drivers = Get-ChildItem "${letter}:\drivers" -File
+                  if ($drivers.Count -ne 120) { throw "drivers enthaelt $($drivers.Count) statt 120 Dateien." }
+                  Write-Host "  ok  drivers ($($drivers.Count) Dateien)"
               }
-
-              $drivers = Get-ChildItem "${letter}:\drivers" -File
-              if ($drivers.Count -ne 120) { throw "drivers enthaelt $($drivers.Count) statt 120 Dateien." }
-              Write-Host "  ok  drivers ($($drivers.Count) Dateien)"
-
-              $label = (Get-Volume -DriveLetter $letter).FileSystemLabel
-              Write-Host "  Datentraegerbezeichnung: $label"
+              finally {
+                  Dismount-DiskImage -ImagePath $iso.FullName | Out-Null
+              }
           }
-          finally {
-              Dismount-DiskImage -ImagePath $iso | Out-Null
-          }
+
+          # Microsofts eigene Medien tragen UDF, und die UEFI-Firmware vieler Rechner braucht das auch.
+          $udf = $isos | Where-Object { $_.Name -like '*imapi*' }
+          if (-not $udf) { throw 'Das ueber IMAPI erzeugte Abbild fehlt.' }
 
       - name: Programmdatei veroeffentlichen
         uses: actions/upload-artifact@v4

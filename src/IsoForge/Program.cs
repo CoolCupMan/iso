@@ -102,6 +102,15 @@ public static class Program
             _ => throw new ArgumentException($"Unbekannte Kompression '{compressionText}'. Moeglich sind: none, fast, max."),
         };
 
+        string engineText = commandLine.Value("iso-engine", "auto");
+        if (!IsoBuilder.TryParseEngine(engineText, out IsoEngine parsedEngine))
+        {
+            throw new ArgumentException(
+                $"Unbekannter ISO-Schreiber '{engineText}'. Moeglich sind: auto, oscdimg, imapi, builtin.");
+        }
+
+        options.Engine = parsedEngine;
+
         foreach (string volume in commandLine.List("extra-volumes"))
         {
             options.ExtraVolumes.Add(volume.TrimEnd(':', '\\').ToUpperInvariant());
@@ -349,6 +358,7 @@ public static class Program
             --winpe <boot.wim>                    Eigenes Startsystem statt der Wiederherstellungsumgebung
             --bootsect <Pfad>                     bootsect.exe fuer BIOS/MBR-Ziele
             --oscdimg <Pfad>                      oscdimg.exe aus dem Windows-ADK erzwingen
+            --iso-engine <auto|oscdimg|imapi|builtin>  Welcher Weg das ISO schreibt (Vorgabe: auto)
             --work <Verzeichnis>                  Arbeitsverzeichnis
             --keep-work                           Arbeitsdateien nicht loeschen
             --yes                                 Rueckfragen ueberspringen

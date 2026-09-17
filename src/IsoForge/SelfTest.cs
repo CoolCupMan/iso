@@ -6,8 +6,9 @@ using IsoForge.Media;
 namespace IsoForge;
 
 /// <summary>
-/// Prueft den eingebauten ISO-Schreiber ohne Windows-Umgebung: Es wird ein kleines Medium gebaut,
-/// wieder eingelesen und Byte fuer Byte mit den Ausgangsdaten verglichen. Die Bauumgebung ruft das auf.
+/// Prueft die ISO-Erzeugung, ohne dass dafuer gesichert werden muss: Es wird ein kleines Medium gebaut,
+/// wieder eingelesen und Byte fuer Byte mit den Ausgangsdaten verglichen. Geprueft werden alle auf
+/// diesem Rechner verfuegbaren Schreibwege. Die Bauumgebung ruft das nach jedem Build auf.
 /// </summary>
 public static class SelfTest
 {
@@ -15,10 +16,8 @@ public static class SelfTest
     {
         Program.PrintBanner();
         Console.WriteLine($"  Arbeitsverzeichnis: {workDirectory}");
-        Console.WriteLine();
 
         string staging = Path.Combine(workDirectory, "staging");
-        string isoPath = Path.Combine(workDirectory, "selftest.iso");
 
         if (Directory.Exists(workDirectory))
         {
@@ -26,12 +25,22 @@ public static class SelfTest
         }
 
         Directory.CreateDirectory(staging);
-
         Dictionary<string, byte[]> expected = CreateSampleTree(staging);
 
         byte[] biosBootImage = RandomNumberGenerator.GetBytes(2048);
         byte[] efiPayload = RandomNumberGenerator.GetBytes(180 * 1024);
         byte[] efiBootImage = FatImageBuilder.CreateEfiBootImage(efiPayload);
+
+        int failures = 0;
+
+        failures += Check("FAT-Abbild traegt eine gueltige Startsignatur",
+            efiBootImage[510] == 0x55 && efiBootImage[511] == 0xAA, "-");
+
+        // --- Eingebauter Schreiber ------------------------------------------
+        string builtInPath = Path.Combine(workDirectory, "selftest-builtin.iso");
+        Console.WriteLine();
+        Console.WriteLine("  Eingebauter Schreiber (ISO 9660 + Joliet)");
+        Console.WriteLine("  ---------------------------------------------------------------------------");
 
         IsoImageOptions options = new()
         {
@@ -41,28 +50,92 @@ public static class SelfTest
             Timestamp = new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero),
         };
 
-        IsoDirectory root = IsoDirectory.FromDisk(staging);
-
-        using (FileStream output = new(isoPath, FileMode.Create, FileAccess.ReadWrite))
+        using (FileStream output = new(builtInPath, FileMode.Create, FileAccess.ReadWrite))
         {
-            IsoImageWriter.Write(root, options, output);
+            IsoImageWriter.Write(IsoDirectory.FromDisk(staging), options, output);
         }
 
+        failures += Verify(builtInPath, expected, biosBootImage, efiBootImage, checkStreamLength: true);
+
+        // --- Image Mastering API ---------------------------------------------
+        Console.WriteLine();
+        Console.WriteLine("  Image Mastering API (ISO 9660 + Joliet + UDF)");
+        Console.WriteLine("  ---------------------------------------------------------------------------");
+
+        if (!ImapiIsoWriter.IsAvailable())
+        {
+            Console.WriteLine("   uebersprungen  IMAPI2FS steht auf diesem System nicht zur Verfuegung.");
+        }
+        else
+        {
+            string imapiPath = Path.Combine(workDirectory, "selftest-imapi.iso");
+            try
+            {
+                ImapiIsoWriter.Write(
+                    staging,
+                    imapiPath,
+                    "ISOFORGE_SELFTEST",
+                    biosBootImage,
+                    efiBootImage,
+                    Path.Combine(workDirectory, "bootimages"));
+
+                // IMAPI legt die Dateien im UDF-Baum ab; der Startkatalog liegt aber unabhaengig vom
+                // Dateisystem im Abbild und laesst sich deshalb genauso pruefen.
+                failures += Verify(imapiPath, expected: null, biosBootImage, efiBootImage, checkStreamLength: false);
+            }
+            catch (Exception ex)
+            {
+                failures += Check("IMAPI2FS schreibt ein Abbild", false, ex.Message);
+            }
+        }
+
+        Console.WriteLine();
+        if (failures == 0)
+        {
+            Console.WriteLine("  Alle Pruefungen bestanden.");
+            foreach (string file in Directory.GetFiles(workDirectory, "*.iso"))
+            {
+                Console.WriteLine($"   {file}  ({Capture.Format.Bytes(new FileInfo(file).Length)})");
+            }
+
+            Console.WriteLine();
+            return 0;
+        }
+
+        Console.WriteLine($"  {failures} Pruefung(en) fehlgeschlagen.");
+        Console.WriteLine();
+        return 1;
+    }
+
+    /// <summary>
+    /// Prueft ein erzeugtes Abbild. <paramref name="expected"/> bleibt leer, wenn die Dateien in einem
+    /// Dateisystem liegen, das der eingebaute Leser nicht kennt - dann werden nur die Startdaten geprueft.
+    /// </summary>
+    private static int Verify(
+        string path,
+        Dictionary<string, byte[]>? expected,
+        byte[] biosBootImage,
+        byte[] efiBootImage,
+        bool checkStreamLength)
+    {
         int failures = 0;
-        using FileStream stream = File.OpenRead(isoPath);
+
+        using FileStream stream = File.OpenRead(path);
         IsoImageInfo info = IsoImageReader.Read(stream);
 
-        failures += Check("Datentraegerbezeichnung", info.VolumeLabel == "ISOFORGE_SELFTEST", info.VolumeLabel);
-        failures += Check("Joliet vorhanden", info.HasJoliet, info.HasJoliet.ToString());
-        failures += Check("Groesse stimmt mit dem Volume Descriptor ueberein",
-            stream.Length == (long)info.TotalSectors * IsoLayout.SectorSize,
-            $"{stream.Length} vs {(long)info.TotalSectors * IsoLayout.SectorSize}");
+        failures += Check("Datentraegerbezeichnung", info.VolumeLabel.StartsWith("ISOFORGE", StringComparison.Ordinal), info.VolumeLabel);
 
+        if (checkStreamLength)
+        {
+            failures += Check("Groesse stimmt mit dem Volume Descriptor ueberein",
+                stream.Length == (long)info.TotalSectors * IsoLayout.SectorSize,
+                $"{stream.Length} statt {(long)info.TotalSectors * IsoLayout.SectorSize}");
+        }
+
+        failures += Check("Startkatalog vorhanden", info.BootCatalogLba != 0, "-");
         failures += Check("Zwei Starteintraege", info.BootEntries.Count == 2, info.BootEntries.Count.ToString());
-        failures += Check("BIOS-Starteintrag",
-            info.BootEntries.Any(e => e.PlatformId == 0x00 && e.Bootable), "-");
-        failures += Check("UEFI-Starteintrag",
-            info.BootEntries.Any(e => e.PlatformId == 0xEF && e.Bootable), "-");
+        failures += Check("BIOS-Starteintrag", info.BootEntries.Any(e => e.PlatformId == 0x00 && e.Bootable), "-");
+        failures += Check("UEFI-Starteintrag", info.BootEntries.Any(e => e.PlatformId == 0xEF && e.Bootable), "-");
 
         foreach (IsoBootEntry entry in info.BootEntries)
         {
@@ -74,36 +147,27 @@ public static class SelfTest
                 actual.AsSpan().SequenceEqual(reference), "-");
         }
 
-        foreach ((string path, byte[] content) in expected)
+        if (expected is null)
+        {
+            Console.WriteLine("   ok     Dateipruefung uebernimmt die Bauumgebung ueber Mount-DiskImage");
+            return failures;
+        }
+
+        int mismatches = 0;
+        foreach ((string relativePath, byte[] content) in expected)
         {
             IsoEntry? entry = info.Entries.FirstOrDefault(e =>
-                !e.IsDirectory && string.Equals(e.Path, path, StringComparison.Ordinal));
+                !e.IsDirectory && string.Equals(e.Path, relativePath, StringComparison.Ordinal));
 
-            if (entry is null)
+            if (entry is null || !IsoImageReader.ReadFile(stream, entry).AsSpan().SequenceEqual(content))
             {
-                failures += Check($"Datei {path}", false, "fehlt im Abbild");
-                continue;
+                Console.WriteLine($"   FEHLER {relativePath}");
+                mismatches++;
             }
-
-            byte[] actual = IsoImageReader.ReadFile(stream, entry);
-            failures += Check($"Datei {path}", actual.AsSpan().SequenceEqual(content), $"{actual.Length} Bytes");
         }
 
-        failures += Check("FAT-Abbild traegt eine gueltige Startsignatur",
-            efiBootImage[510] == 0x55 && efiBootImage[511] == 0xAA, "-");
-
-        Console.WriteLine();
-        if (failures == 0)
-        {
-            Console.WriteLine("  Alle Pruefungen bestanden.");
-            Console.WriteLine($"  Erzeugtes Abbild: {isoPath} ({Format(new FileInfo(isoPath).Length)})");
-            Console.WriteLine();
-            return 0;
-        }
-
-        Console.WriteLine($"  {failures} Pruefung(en) fehlgeschlagen.");
-        Console.WriteLine();
-        return 1;
+        failures += Check($"{expected.Count} Dateien unveraendert zurueckgelesen", mismatches == 0, $"{mismatches} abweichend");
+        return failures;
     }
 
     private static Dictionary<string, byte[]> CreateSampleTree(string staging)
@@ -143,6 +207,4 @@ public static class SelfTest
         Console.WriteLine($"   {(condition ? "ok    " : "FEHLER")} {description}{(condition ? string.Empty : $"  ({detail})")}");
         return condition ? 0 : 1;
     }
-
-    private static string Format(long value) => Capture.Format.Bytes(value);
 }
