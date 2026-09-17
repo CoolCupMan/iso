@@ -55,7 +55,17 @@ public static class ImapiIsoWriter
             image.FileSystemsToCreate = FsiFileSystemIso9660 | FsiFileSystemJoliet | FsiFileSystemUdf;
             image.UDFRevision = 0x102;
             image.VolumeName = Truncate(volumeLabel, 32);
-            image.FreeMediaBlocks = -1; // keine Groessenbegrenzung durch ein angenommenes Medium
+
+            // Ohne diese Angabe rechnet IMAPI mit der Groesse eines angenommenen Rohlings und lehnt
+            // groessere Abbilder ab. Ein negativer Wert hebt die Grenze auf.
+            try
+            {
+                image.FreeMediaBlocks = -1;
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"FreeMediaBlocks liess sich nicht setzen: {ex.Message}");
+            }
 
             AssignBootImages(image, comObjects, temporaryFiles, workDirectory, biosBootImage, efiBootImage);
 
@@ -66,7 +76,8 @@ public static class ImapiIsoWriter
             dynamic result = image.CreateResultImage();
             comObjects.Add(result);
 
-            IStream stream = (IStream)result.ImageStream;
+            object rawStream = result.ImageStream;
+            IStream stream = (IStream)rawStream;
             comObjects.Add(stream);
 
             CopyStreamToFile(stream, outputPath);
