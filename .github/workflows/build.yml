@@ -3,6 +3,7 @@ name: build
 on:
   push:
     branches: ["**"]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -36,6 +37,8 @@ jobs:
     name: IsoForge.exe
     runs-on: windows-latest
     needs: test
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -48,12 +51,22 @@ jobs:
         shell: pwsh
         run: |
           $arguments = @{ SkipTests = $true }
-          if ('${{ inputs.build_id }}') { $arguments.BuildId = '${{ inputs.build_id }}' }
+          if ('${{ inputs.build_id }}') {
+              $arguments.BuildId = '${{ inputs.build_id }}'
+          }
+          elseif ($env:GITHUB_REF -like 'refs/tags/*') {
+              # Eine Freigabe soll reproduzierbar sein: die Kennung wird aus dem Tag abgeleitet,
+              # nicht gewuerfelt. Derselbe Tag ergibt damit immer dieselbe Programmdatei.
+              $seed = [Text.Encoding]::UTF8.GetBytes("IsoForge|$env:GITHUB_REF_NAME")
+              $hash = [Security.Cryptography.SHA256]::HashData($seed)
+              $arguments.BuildId = [guid]::new($hash[0..15])
+          }
           ./build.ps1 @arguments
 
           $exe = Get-ChildItem artifacts/IsoForge-*.exe | Select-Object -First 1
           "exe=$($exe.FullName)" >> $env:GITHUB_OUTPUT
           "name=$($exe.Name)" >> $env:GITHUB_OUTPUT
+          "shortid=$($exe.BaseName -replace '.*-', '')" >> $env:GITHUB_OUTPUT
 
       - name: Selbsttest des ISO-Schreibers
         shell: pwsh
@@ -118,3 +131,23 @@ jobs:
             artifacts/IsoForge-*.exe
             artifacts/IsoForge-*.exe.sha256
           if-no-files-found: error
+
+      - name: Freigabe anlegen
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/IsoForge-*.exe
+            artifacts/IsoForge-*.exe.sha256
+          fail_on_unmatched_files: true
+          body: |
+            **IsoForge ${{ github.ref_name }}** - Build-Kennung `${{ steps.build.outputs.shortid }}`
+
+            Sichert ein laufendes Windows als startfaehiges ISO-Abbild. Die Programmdatei ist
+            eigenstaendig; auf dem Zielrechner wird kein .NET gebraucht. Sie muss als Administrator
+            gestartet werden.
+
+            Beim ersten Start warnt der SmartScreen-Filter, weil die Datei nicht signiert ist:
+            *Weitere Informationen* - *Trotzdem ausfuehren*.
+
+            Die Pruefsumme steht in der beiliegenden `.sha256`-Datei.

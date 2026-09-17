@@ -187,6 +187,18 @@ Dadurch:
 
 ---
 
+## Herunterladen
+
+Fertige Programmdateien liegen unter [Releases](https://github.com/CoolCupMan/iso/releases). Der
+Asset-Link lädt die `.exe` unmittelbar – ohne Anmeldung und ohne Archiv drumherum.
+
+Jeder Lauf des Arbeitsablaufs `build` hängt die Programmdatei zusätzlich als Artefakt an. Artefakte
+lassen sich allerdings nur angemeldet und nur als ZIP laden und verfallen nach 90 Tagen; für den
+alltäglichen Gebrauch ist das Release der bessere Weg.
+
+Die Kennung eines Releases wird aus dem Tag abgeleitet und ist damit reproduzierbar: derselbe Tag
+ergibt dieselbe Build-Kennung und dieselbe Programmdatei.
+
 ## Selbst bauen
 
 Nötig ist das [.NET 8 SDK](https://dotnet.microsoft.com/download). Gebaut wird unter Windows:
