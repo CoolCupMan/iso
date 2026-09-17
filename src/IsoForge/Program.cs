@@ -19,6 +19,17 @@ public static class Program
             Log.MinimumLevel = LogLevel.Debug;
         }
 
+        // '--help' und '-h' stehen vor dem eigentlichen Befehl und sollen trotzdem greifen.
+        if (commandLine.Has("help") || args.Contains("-h") || args.Contains("-?"))
+        {
+            return Help();
+        }
+
+        if (commandLine.Has("version"))
+        {
+            return Info();
+        }
+
         try
         {
             return commandLine.Command switch
@@ -145,6 +156,10 @@ public static class Program
     private static int Analyze()
     {
         PrintBanner();
+
+        // Ohne Sicherungsrecht bleibt die Wiederherstellungsumgebung unsichtbar.
+        Privileges.EnableAll();
+
         Console.WriteLine("  Datentraeger dieses Rechners");
         Console.WriteLine("  ---------------------------------------------------------------------------");
 

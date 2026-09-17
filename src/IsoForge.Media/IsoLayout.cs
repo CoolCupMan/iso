@@ -71,17 +71,27 @@ public static class IsoLayout
         }
     }
 
-    /// <summary>UCS-2 Big Endian, rechts mit U+0020 aufgefuellt (Joliet-Textfelder).</summary>
+    /// <summary>
+    /// UCS-2 Big Endian, rechts mit U+0020 aufgefuellt (Joliet-Textfelder). Einige Felder eines Volume
+    /// Descriptors sind 37 Byte lang und damit ungerade - das letzte Byte bleibt dann halbes Zeichen und
+    /// wird mit einem Leerzeichen belegt.
+    /// </summary>
     public static void WriteUcs2(Span<byte> target, string value)
     {
-        for (int i = 0; i < target.Length; i += 2)
+        int pairs = target.Length / 2;
+
+        for (int i = 0; i < pairs; i++)
         {
-            target[i] = 0x00;
-            target[i + 1] = 0x20;
+            target[i * 2] = 0x00;
+            target[(i * 2) + 1] = 0x20;
         }
 
-        int max = target.Length / 2;
-        for (int i = 0; i < value.Length && i < max; i++)
+        if (target.Length % 2 != 0)
+        {
+            target[^1] = 0x20;
+        }
+
+        for (int i = 0; i < value.Length && i < pairs; i++)
         {
             WriteUInt16Be(target[(i * 2)..], value[i]);
         }
