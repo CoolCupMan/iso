@@ -75,10 +75,10 @@ public static class IsoImageReader
                 while (offset + 64 <= IsoLayout.SectorSize && (catalog[offset] == 0x90 || catalog[offset] == 0x91))
                 {
                     byte sectionPlatform = catalog[offset + 1];
-                    int entries = IsoLayout.ReadUInt16Le(catalog.AsSpan(offset + 2));
+                    int sectionEntryCount = IsoLayout.ReadUInt16Le(catalog.AsSpan(offset + 2));
                     bool final = catalog[offset] == 0x91;
                     offset += 32;
-                    for (int i = 0; i < entries && offset + 32 <= IsoLayout.SectorSize; i++, offset += 32)
+                    for (int i = 0; i < sectionEntryCount && offset + 32 <= IsoLayout.SectorSize; i++, offset += 32)
                     {
                         AddEntry(catalog.AsSpan(offset, 32), sectionPlatform);
                     }
