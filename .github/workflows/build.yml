@@ -11,6 +11,10 @@ on:
         description: "Feste Build-GUID (leer = neue Kennung je Lauf)"
         required: false
         type: string
+      release_tag:
+        description: "Freigabe unter diesem Tag anlegen, z. B. v1.0.0 (leer = keine Freigabe)"
+        required: false
+        type: string
 
 jobs:
   test:
@@ -54,12 +58,16 @@ jobs:
           if ('${{ inputs.build_id }}') {
               $arguments.BuildId = '${{ inputs.build_id }}'
           }
-          elseif ($env:GITHUB_REF -like 'refs/tags/*') {
+          else {
               # Eine Freigabe soll reproduzierbar sein: die Kennung wird aus dem Tag abgeleitet,
               # nicht gewuerfelt. Derselbe Tag ergibt damit immer dieselbe Programmdatei.
-              $seed = [Text.Encoding]::UTF8.GetBytes("IsoForge|$env:GITHUB_REF_NAME")
-              $hash = [Security.Cryptography.SHA256]::HashData($seed)
-              $arguments.BuildId = [guid]::new($hash[0..15])
+              $tag = '${{ inputs.release_tag }}'
+              if (-not $tag -and $env:GITHUB_REF -like 'refs/tags/*') { $tag = $env:GITHUB_REF_NAME }
+              if ($tag) {
+                  $seed = [Text.Encoding]::UTF8.GetBytes("IsoForge|$tag")
+                  $hash = [Security.Cryptography.SHA256]::HashData($seed)
+                  $arguments.BuildId = [guid]::new($hash[0..15])
+              }
           }
           ./build.ps1 @arguments
 
@@ -133,15 +141,18 @@ jobs:
           if-no-files-found: error
 
       - name: Freigabe anlegen
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          name: IsoForge ${{ inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
           files: |
             artifacts/IsoForge-*.exe
             artifacts/IsoForge-*.exe.sha256
           fail_on_unmatched_files: true
           body: |
-            **IsoForge ${{ github.ref_name }}** - Build-Kennung `${{ steps.build.outputs.shortid }}`
+            **IsoForge ${{ inputs.release_tag || github.ref_name }}** - Build-Kennung `${{ steps.build.outputs.shortid }}`
 
             Sichert ein laufendes Windows als startfaehiges ISO-Abbild. Die Programmdatei ist
             eigenstaendig; auf dem Zielrechner wird kein .NET gebraucht. Sie muss als Administrator
